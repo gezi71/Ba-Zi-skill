@@ -9,7 +9,7 @@
 
 ```bash
 python --version                       # >= 3.9
-python -m unittest discover -s tests   # 44 项断言
+python -m unittest discover -s tests   # 49 项断言（含 45 条对拍外部实现的冻结用例）
 python scripts/bazi.py --date 1990-06-15 --time 12:30 --gender male --city 北京
 ```
 

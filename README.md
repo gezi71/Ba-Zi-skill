@@ -55,7 +55,7 @@ print(info.summary, yun[0].ganzhi)
 跑测试：
 
 ```bash
-python -m unittest discover -s tests   # 44 项断言
+python -m unittest discover -s tests   # 49 项断言
 ```
 
 ---
@@ -123,6 +123,9 @@ python -m unittest discover -s tests   # 44 项断言
 这个数字与 Meeus 公开的 0.01° 精度（对应时间约 15 分钟）完全吻合 ——
 **是公式的固有误差，不是实现错误**。这一点单独验证过：本实现的太阳视黄经
 与《天文算法》例 25.a 的标准答案逐位一致（差值 0.00000°）。
+
+**四柱本身的对照**：随机生成 1940–2035 的 40 个日期与 lunar-javascript 对拍，
+**40 / 40 完全一致**（含藏干与十神口径外的全部四柱）。这批期望值已固化为测试用例。
 
 ### 4.2 这个误差意味着什么
 
