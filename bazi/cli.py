@@ -21,14 +21,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, timedelta
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import astro
+from . import astro, __version__
 from .cities import lookup_city
 from .chart import DEFAULT_LATE_ZISHI_RULE, LATE_ZISHI_RULES, BirthInput, build_chart
 from .dayun import compute_dayun, compute_liunian
+from .patterns import analyze_patterns, branch_relations
 
 DISCLAIMER = (
     "> 本排盘由确定性算法生成，不涉及任何科学验证。"
@@ -43,8 +45,12 @@ DISCLAIMER = (
 def _parse_time(value: str) -> Tuple[int, int]:
     try:
         parts = value.split(":")
+        if len(parts) not in (1, 2):
+            raise ValueError
         h = int(parts[0])
         m = int(parts[1]) if len(parts) > 1 else 0
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError
         return h, m
     except (ValueError, IndexError):
         raise argparse.ArgumentTypeError(f"时间格式应为 HH:MM，收到：{value!r}")
@@ -52,16 +58,32 @@ def _parse_time(value: str) -> Tuple[int, int]:
 
 def _parse_years(value: str) -> Tuple[int, ...]:
     out = []
-    for chunk in value.replace("，", ",").split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
-        if "-" in chunk:
-            a, b = chunk.split("-", 1)
-            out.extend(range(int(a), int(b) + 1))
-        else:
-            out.append(int(chunk))
+    try:
+        for chunk in value.replace("，", ",").split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if "-" in chunk:
+                a, b = [int(x) for x in chunk.split("-", 1)]
+                if not 1 <= a <= b <= 9998:
+                    raise ValueError
+                out.extend(range(a, b + 1))
+            else:
+                year = int(chunk)
+                if not 1 <= year <= 9998:
+                    raise ValueError
+                out.append(year)
+    except ValueError:
+        raise argparse.ArgumentTypeError("流年应为1–9998年，范围起年不得晚于止年")
     return tuple(out)
+
+
+def _parse_time_range(value: str):
+    try:
+        start, end = value.split("-")
+        return _parse_time(start), _parse_time(end)
+    except (ValueError, argparse.ArgumentTypeError):
+        raise argparse.ArgumentTypeError("时间范围应为 HH:MM-HH:MM；结束早于开始时表示跨午夜")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,7 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="示例：python scripts/bazi.py --date 1990-06-15 --time 12:30 --gender male --city 北京",
     )
     p.add_argument("--date", required=True, help="出生日期，YYYY-MM-DD")
-    p.add_argument("--time", required=True, type=_parse_time, help="出生时间，HH:MM（按下方 --tz 时区解读）")
+    clock = p.add_mutually_exclusive_group(required=True)
+    clock.add_argument("--time", type=_parse_time, help="出生时间，HH:MM（按下方 --tz 时区解读）")
+    clock.add_argument("--time-range", type=_parse_time_range, help="不确定出生时间，HH:MM-HH:MM，含端点；早于开始则跨午夜")
+    p.add_argument("--compare", action="store_true", help="比较适用的中国夏令时读数及交节精度情景；不是概率推断")
     p.add_argument("--gender", choices=("male", "female", "unknown"), default="unknown",
                    help="性别。未知则无法排大运")
     p.add_argument("--city", default="", help="出生地城市名，用于查经度；与 --longitude 二选一")
@@ -81,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tz", type=float, default=8.0,
                    help="出生时间的时区偏移，默认 +8（北京时间）")
     p.add_argument("--dst-adjust", action="store_true",
-                   help="确认所报时间为夏令时读数时启用，自动回拨 1 小时")
+                   help="中国大陆表内日期、标准时区 +8：确认所报时间为夏令时读数时回拨 1 小时；海外用 --tz 实际偏移")
     p.add_argument("--late-zishi", choices=LATE_ZISHI_RULES, default=DEFAULT_LATE_ZISHI_RULE,
                    help="晚子时（23:00 后）流派，默认 next-day")
     p.add_argument("--dayun-count", type=int, default=8, help="排几步大运，默认 8")
@@ -141,6 +166,7 @@ def to_json(chart, dayun_info, dayun_list, liunian, place_label: str) -> str:
         }
 
     payload: Dict[str, Any] = {
+        "输出版本": __version__,
         "排盘条件": {
             "输入日期": f"{chart.birth.year:04d}-{chart.birth.month:02d}-{chart.birth.day:02d}",
             "输入时间": f"{chart.birth.hour:02d}:{chart.birth.minute:02d}",
@@ -150,6 +176,7 @@ def to_json(chart, dayun_info, dayun_list, liunian, place_label: str) -> str:
             "性别": chart.birth.gender,
             "晚子时规则": chart.birth.late_zishi_rule,
             "夏令时回拨": chart.birth.dst_adjust,
+            "节气敏感性偏移分钟": chart.birth.term_offset_minutes,
         },
         "真太阳时": {
             "钟表时间": chart.solar.clock_local.strftime("%Y-%m-%d %H:%M:%S"),
@@ -174,6 +201,7 @@ def to_json(chart, dayun_info, dayun_list, liunian, place_label: str) -> str:
             for h in chart.shen_sha
         ],
         "告警": [w.message for w in chart.warnings],
+        "传统结构": analyze_patterns(chart),
         "免责声明": DISCLAIMER.lstrip("> "),
     }
 
@@ -190,13 +218,22 @@ def to_json(chart, dayun_info, dayun_list, liunian, place_label: str) -> str:
                     "第几步": d.index, "干支": d.ganzhi, "十神": d.shi_shen,
                     "起": d.start_age, "止": d.end_age,
                     "起于": str(d.start_date), "止于": str(d.end_date),
+                    "与原局冲合": branch_relations(chart, ((f"第{d.index}步大运{d.ganzhi}", d.branch),)),
                 }
                 for d in dayun_list
             ],
         }
     if liunian:
         payload["流年"] = [
-            {"年份": l.year, "干支": l.ganzhi, "十神": l.shi_shen, "虚岁": l.age}
+            {"年份": l.year, "干支": l.ganzhi, "十神": l.shi_shen, "年份差": l.age,
+             "与原局冲合": branch_relations(chart, ((f"{l.year}流年{l.ganzhi}", l.branch),)),
+             "大运叠加": [
+                 {"大运": d.ganzhi, "起于": str(d.start_date), "止于": str(d.end_date),
+                  "冲合": branch_relations(chart, ((f"第{d.index}步大运{d.ganzhi}", d.branch),
+                                                  (f"{l.year}流年{l.ganzhi}", l.branch)))}
+                 for d in dayun_list if d.start_date < date(l.year + 1, 1, 1)
+                 and d.end_date > date(l.year, 1, 1)
+             ]}
             for l in liunian
         ]
     return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -214,12 +251,17 @@ def to_markdown(chart, dayun_info, dayun_list, liunian, place_label: str) -> str
     lines.append("")
     lines.append(DISCLAIMER)
     lines.append("")
+    if chart.warnings:
+        lines.append("## ⚠️ 必须先告知的不确定性")
+        lines.extend(f"- {w.message}" for w in chart.warnings)
+        lines.append("")
 
     # ── 排盘条件 ──
     lines.append("## 一、排盘条件")
     lines.append("")
     lines.append("| 项目 | 值 |")
     lines.append("| --- | --- |")
+    lines.append(f"| 输出版本 | {__version__} |")
     lines.append(f"| 出生日期（公历） | {b.year:04d}-{b.month:02d}-{b.day:02d} |")
     lines.append(f"| 出生时间（钟表） | {b.hour:02d}:{b.minute:02d} |")
     lines.append(f"| 出生地 | {place_label} |")
@@ -320,25 +362,123 @@ def to_markdown(chart, dayun_info, dayun_list, liunian, place_label: str) -> str
     if liunian:
         lines.append("## 七、流年")
         lines.append("")
-        lines.append("| 年份 | 干支 | 十神 | 虚岁 |")
+        lines.append("| 年份 | 干支 | 十神 | 年份差 |")
         lines.append("| --- | --- | --- | --- |")
         for l in liunian:
             lines.append(f"| {l.year} | {l.ganzhi} | {l.shi_shen} | {l.age} |")
         lines.append("")
 
-    # ── 告警 ──
-    if chart.warnings:
-        lines.append("## 八、⚠️ 必须告知使用者的不确定性")
+    structure = analyze_patterns(chart)
+    lines.extend(["## 八、传统结构（候选，不是成格结论）", "", structure["说明"],
+                  f"规则版本：{structure['规则版本']}", ""])
+    for candidate in structure["格局候选"]:
+        lines.append(f"### {candidate['名称']}")
+        for field in ("命中条件", "不满足项", "反证线索"):
+            lines.append(f"- {field}：{'；'.join(candidate[field]) or '无'}")
+        lines.append("- 来源：" + " / ".join(candidate["来源"]))
         lines.append("")
-        for w in chart.warnings:
-            lines.append(f"- {w.message}")
-        lines.append("")
+    for combo in structure["十神组合线索"]:
+        lines.append(f"- {combo['名称']}：{'；'.join(combo['依据'])}；{combo['状态']}。")
+    lines.append("- 未评估：" + "；".join(structure["未评估"]))
+    lines.extend(["", "### 原局、大运与流年冲合", "", "仅记录支组，不判合化、解冲或事件；流年按整年展示，大运起止日期为近似值。", ""])
+    data = json.loads(to_json(chart, dayun_info, dayun_list, liunian, place_label))
+    relation_groups = [("原局", structure["原局冲合"])]
+    relation_groups += [(f"第{d['第几步']}步大运{d['干支']}", d["与原局冲合"])
+                        for d in data.get("大运", {}).get("运程", [])]
+    for item in data.get("流年", []):
+        relation_groups.append((f"{item['年份']}流年", item["与原局冲合"]))
+        for yun in item["大运叠加"]:
+            relation_groups.append((f"{item['年份']}叠{yun['大运']}（{yun['起于']}至{yun['止于']}，止日不含）", yun["冲合"]))
+    for label, relations in relation_groups:
+        descriptions = [f"{'、'.join(r['位置'])}：{''.join(r['地支'])}{r['关系']}" for r in relations]
+        lines.append(f"- {label}：{'；'.join(descriptions) or '未命中已支持的关系'}")
+    lines.append("")
 
     return "\n".join(lines)
 
 
 def _tzdelta(offset_hours: float) -> timedelta:
     return timedelta(hours=offset_hours)
+
+
+def compare_output(birth, time_range, sensitivity, dayun_count, liunian_years, place_label):
+    """分钟精度穷举出生范围，合并四柱相同的结果；保留每个输入情景的时间段。"""
+    start = datetime(birth.year, birth.month, birth.day, birth.hour, birth.minute)
+    end = start
+    if time_range:
+        end = start.replace(hour=time_range[1][0], minute=time_range[1][1])
+        if end < start:
+            end += timedelta(days=1)
+    groups = {}
+    sample_count = 0
+    moment = start
+    while moment <= end:
+        base = replace(birth, year=moment.year, month=moment.month, day=moment.day,
+                       hour=moment.hour, minute=moment.minute)
+        dst_options = [birth.dst_adjust]
+        if sensitivity and not birth.dst_adjust and birth.tz_offset_hours == 8 and astro.china_dst_range(moment.date()):
+            dst_options.append(True)
+        for dst in dst_options:
+            current = replace(base, dst_adjust=dst)
+            normal = build_chart(current)
+            offsets = [0]
+            if sensitivity and any(w.term_name != "夏令时" for w in normal.warnings):
+                offsets = [-15, 0, 15]
+            for offset in offsets:
+                chart = normal if not offset else build_chart(replace(current, term_offset_minutes=offset))
+                key = tuple(chart.pillars[k].ganzhi for k in ("year", "month", "day", "hour"))
+                info, yun = compute_dayun(chart, dayun_count) if birth.gender != "unknown" else (None, ())
+                if key not in groups:
+                    years = compute_liunian(chart, liunian_years)
+                    groups[key] = {"四柱": dict(zip(("年柱", "月柱", "日柱", "时柱"), key)),
+                        "输入情景": [], "告警": [], "起运日期范围": [],
+                        "代表排盘": json.loads(to_json(chart, info, yun, years, place_label))}
+                group = groups[key]
+                stamp = moment.strftime("%Y-%m-%d %H:%M")
+                scenario = {"开始": stamp, "结束": stamp, "夏令时回拨": dst,
+                            "节气敏感性偏移分钟": offset}
+                # 不同情景交错采样，用同一情景的最后一个时间段判断连续性。
+                previous = next((s for s in reversed(group["输入情景"])
+                                 if s["夏令时回拨"] == dst and s["节气敏感性偏移分钟"] == offset), None)
+                if previous and datetime.strptime(previous["结束"], "%Y-%m-%d %H:%M") + timedelta(minutes=1) == moment:
+                    previous["结束"] = stamp
+                else:
+                    group["输入情景"].append(scenario)
+                for warning in chart.warnings:
+                    if warning.message not in group["告警"]:
+                        group["告警"].append(warning.message)
+                if info:
+                    dates = group["起运日期范围"] + [str(info.qiyun_date)]
+                    group["起运日期范围"] = [min(dates), max(dates)]
+                sample_count += 1
+        moment += timedelta(minutes=1)
+    candidates = list(groups.values())
+    shared = {pos: candidates[0]["四柱"][pos] for pos in ("年柱", "月柱", "日柱", "时柱")
+              if all(c["四柱"][pos] == candidates[0]["四柱"][pos] for c in candidates)}
+    return {"输出版本": __version__, "模式": "候选盘比较", "范围": [str(start), str(end)],
+            "情景采样数": sample_count, "共同四柱": shared,
+            "变化四柱": [p for p in ("年柱", "月柱", "日柱", "时柱") if p not in shared],
+            "候选": candidates,
+            "说明": "时间范围含端点，按分钟穷举；情景数量不是概率。节气±15分钟是敏感性测试，不是新天文精度或修改出生时间。代表排盘只代表该组一个输入；起运日期按范围比较。共同四柱不代表所有性格或事件结论成立。未比较晚子时流派。"}
+
+
+def comparison_markdown(data):
+    lines = ["# 八字候选盘比较", "", DISCLAIMER, "", "## ⚠️ 不确定性与适用范围", "", data["说明"], "",
+             f"- 输入范围：{data['范围'][0]} 至 {data['范围'][1]}",
+             "- 共同四柱：" + "、".join(f"{k}{v}" for k, v in data["共同四柱"].items()),
+             "- 变化四柱：" + ("、".join(data["变化四柱"]) or "无（起运日期仍可能不同）"), ""]
+    for index, candidate in enumerate(data["候选"], 1):
+        lines.extend([f"## 候选 {index}：{' / '.join(candidate['四柱'].values())}", ""])
+        for scenario in candidate["输入情景"]:
+            lines.append(f"- {scenario['开始']} 至 {scenario['结束']}；夏令时回拨={scenario['夏令时回拨']}；节气偏移={scenario['节气敏感性偏移分钟']}分钟")
+        lines.extend(f"- ⚠️ {w}" for w in candidate["告警"])
+        if candidate["起运日期范围"]:
+            lines.append("- 近似起运日期范围：" + " 至 ".join(candidate["起运日期范围"]))
+        structure = candidate["代表排盘"]["传统结构"]
+        lines.append("- 月令候选：" + ("、".join(c["名称"] for c in structure["格局候选"]) or "无普通八格候选"))
+        lines.extend(["", "<details><summary>代表排盘与规则依据（JSON）</summary>", "", "```json",
+                      json.dumps(candidate["代表排盘"], ensure_ascii=False, indent=2), "```", "", "</details>", ""])
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -359,7 +499,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         birth = BirthInput(
             year=y, month=m, day=d,
-            hour=args.time[0], minute=args.time[1],
+            hour=(args.time or args.time_range[0])[0], minute=(args.time or args.time_range[0])[1],
             gender=args.gender,
             city_name=args.city,
             longitude=longitude,
@@ -372,8 +512,23 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"输入有误：{exc}", file=sys.stderr)
         return 2
 
+    if args.time_range or args.compare:
+        try:
+            data = compare_output(birth, args.time_range, args.compare, args.dayun_count,
+                                  args.liunian, place_label)
+        except ValueError as exc:
+            print(f"输入有误：{exc}", file=sys.stderr)
+            return 2
+        out = json.dumps(data, ensure_ascii=False, indent=2) if args.format == "json" else comparison_markdown(data)
+        if args.output:
+            Path(args.output).write_text(out, encoding="utf-8")
+            print(f"已写入 {args.output}", file=sys.stderr)
+        else:
+            print(out)
+        return 0
+
     # 夏令时提示：命中就提醒，但绝不擅自改。
-    dst_hit = astro.china_dst_range(date(y, m, d))
+    dst_hit = astro.china_dst_range(date(y, m, d)) if birth.tz_offset_hours == 8 else None
     if dst_hit and not birth.dst_adjust:
         print(
             f"提示：{y} 年 {dst_hit[0].strftime('%m月%d日')} 至 {dst_hit[1].strftime('%m月%d日')} 中国大陆实行夏令时。"
@@ -382,7 +537,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             file=sys.stderr,
         )
 
-    chart = build_chart(birth)
+    try:
+        chart = build_chart(birth)
+    except ValueError as exc:
+        print(f"输入有误：{exc}", file=sys.stderr)
+        return 2
 
     dayun_info, dayun_list = None, ()
     if args.gender in ("male", "female"):

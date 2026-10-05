@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bazi-fortune"
-version = "0.1.0"
+version = "0.2.0"
 description = "零依赖的八字排盘引擎：精确节气、真太阳时、四柱十神与大运，本身不做吉凶断言"
 readme = "README.md"
 requires-python = ">=3.9"

@@ -55,10 +55,30 @@ print(info.summary, yun[0].ganzhi)
 跑测试：
 
 ```bash
-python -m unittest discover -s tests   # 49 项断言
+python -m unittest discover -s tests   # 排盘、规则候选、比较与输出回归
 ```
 
 ---
+
+### 候选盘与传统结构（0.2.0）
+
+```bash
+# 时间不确定：按分钟比较，跨午夜范围也支持
+python scripts/bazi.py --date 2000-01-01 --time-range 23:30-00:30 --city 北京 --format json
+
+# 夏令时或交节精度有歧义：比较输入假设与节气敏感性
+python scripts/bazi.py --date 1990-06-15 --time 14:30 --gender male --city 北京 --compare --format json
+```
+
+输出增加月令格局候选、条件、不满足项、反证线索、原文来源和未评估范围；
+原局、大运及流年列六冲/六合/完整三合支组。它们是结构证据，不是成格、合化或用神结论。
+主线与出处见 [references/patterns.md](references/patterns.md)，比较方式见
+[references/uncertainty.md](references/uncertainty.md)。
+
+JSON 模式会把未确认夏令时提示纳入 `告警`；大陆确认后才回拨。
+海外请用 `--tz` 指定出生时实际偏移（含夏令时），`--dst-adjust` 不支持海外。
+流年字段原“虚岁”更名为“年份差”，计算含义不变；客户端应同步字段名。
+候选组保留全部输入情景与起运日期范围，代表盘日期不能替代整组范围。
 
 ## 二、为什么它不「算命」
 
@@ -126,6 +146,9 @@ python -m unittest discover -s tests   # 49 项断言
 
 **四柱本身的对照**：随机生成 1940–2035 的 40 个日期与 lunar-javascript 对拍，
 **40 / 40 完全一致**（年柱、月柱、日柱、时柱四项逐项比对）。这批期望值已固化为测试用例。
+
+上述为既有实测记录；60 点原始节气样本及完整校准脚本尚未随仓库保存。
+现有冻结四柱样本能检验四柱回归，不能独立复现这组节气误差统计。
 
 ### 4.2 这个误差意味着什么
 
@@ -247,12 +270,14 @@ python -m unittest discover -s tests   # 49 项断言
 │   └── cli.py            命令行实现
 │
 ├── scripts/bazi.py       命令行薄壳（保证文档里的命令永远可用）
-├── tests/                44 项断言
+├── tests/                排盘、结构候选、比较及输出回归
 ├── references/           ★ 给 LLM 读的知识文档
 │   ├── shi_shen.md       十神象义
 │   ├── da_yun.md         大运流年断法
 │   ├── reading_guide.md  解读框架与话术规范
-│   └── decisions.md      全部口径分歧的取舍记录
+│   ├── decisions.md      全部口径分歧的取舍记录
+│   ├── patterns.md       月令候选、成败边界与两版原文来源
+│   └── uncertainty.md    时间、夏令时与交节候选比较
 ├── assets/report_template.md   命书模板
 └── examples/             示例输出
 ```

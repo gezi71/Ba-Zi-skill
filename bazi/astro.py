@@ -441,12 +441,12 @@ def to_true_solar_time(
         solar_local = clock_local + timedelta(minutes=lon_min + eq_min)
 
     # 输入精度是分钟；跨秒按最近一秒归整，避免浮点毛刺把 23:59:59.999 判成次日
-    total_seconds = round((solar_local - datetime(solar_local.year, solar_local.month, solar_local.day)).total_seconds())
+    clock_midnight = datetime(clock_local.year, clock_local.month, clock_local.day)
+    total_seconds = round((solar_local - clock_midnight).total_seconds())
     day_offset = math.floor(total_seconds / 86400)
     second_of_day = total_seconds - day_offset * 86400
     # datetime 只允许非负 days 差值来构造跨日，所以统一从当天零点加秒
-    solar_local_date = (datetime(solar_local.year, solar_local.month, solar_local.day)
-                        + timedelta(seconds=second_of_day))
+    solar_local_date = clock_midnight + timedelta(seconds=total_seconds)
 
     return TrueSolarTime(
         clock_local=clock_local,

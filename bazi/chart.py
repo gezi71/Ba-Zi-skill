@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -60,6 +60,7 @@ class BirthInput:
     dst_adjust: bool = False             # 夏令时是否由用户确认为「报的是夏令时读数」
     late_zishi_rule: str = DEFAULT_LATE_ZISHI_RULE
     liunian_years: Sequence[int] = ()
+    term_offset_minutes: float = 0.0     # 仅用于节气误差敏感性比较，不是精度修正
 
     def __post_init__(self) -> None:
         if not astro.is_valid_gregorian_date(self.year, self.month, self.day):
@@ -68,6 +69,14 @@ class BirthInput:
             raise ValueError(f"非法时间：{self.hour:02d}:{self.minute:02d}")
         if self.late_zishi_rule not in LATE_ZISHI_RULES:
             raise ValueError(f"未知的晚子时规则：{self.late_zishi_rule}")
+        if self.gender not in ("male", "female", "unknown"):
+            raise ValueError(f"未知性别：{self.gender}")
+        if self.longitude is not None and not -180 <= self.longitude <= 180:
+            raise ValueError("经度必须在 -180 ~ 180 之间")
+        if not -14 <= self.tz_offset_hours <= 14:
+            raise ValueError("时区偏移必须在 -14 ~ 14 之间")
+        if not -15 <= self.term_offset_minutes <= 15:
+            raise ValueError("节气敏感性偏移必须在 -15 ~ 15 分钟之间")
 
 
 @dataclass
@@ -373,13 +382,22 @@ def build_chart(birth: BirthInput) -> Chart:
     dst_note = ""
     if birth.dst_adjust:
         dst_hit = astro.china_dst_range(clock_local.date())
+        if not dst_hit or birth.tz_offset_hours != 8:
+            raise ValueError("--dst-adjust 仅支持中国大陆表内日期及标准时区 +8；海外请用 --tz 指定出生当时实际 UTC 偏移（含夏令时）")
+        clock_local = clock_local - timedelta(hours=1)
+        dst_note = (f"已按夏令时读数回拨 1 小时（{dst_hit[0]} 至 {dst_hit[1]} 期间）")
+    elif birth.tz_offset_hours == 8:
+        dst_hit = astro.china_dst_range(clock_local.date())
         if dst_hit:
-            clock_local = clock_local - timedelta(hours=1)
-            dst_note = (f"已按夏令时读数回拨 1 小时（{dst_hit[0]} 至 {dst_hit[1]} 期间）")
+            dst_note = "日期命中中国大陆夏令时区间；若出生于中国大陆，请确认所报时间是夏令时读数还是已换算的标准时。当前未回拨。"
 
     solar = astro.to_true_solar_time(clock_local, birth.longitude, birth.tz_offset_hours)
 
     candidates = astro.terms_covering(birth.year, birth.month, birth.day)
+    if birth.term_offset_minutes:
+        candidates = [replace(t, utc=t.utc + timedelta(minutes=birth.term_offset_minutes),
+                              jd_tt=t.jd_tt + birth.term_offset_minutes / 1440)
+                      for t in candidates]
 
     # ── 日柱：先用真太阳时校正后的日期，再按晚子时规则决定是否 cross day ──
     chart_date = solar.solar_local.date()
@@ -447,6 +465,7 @@ def build_chart(birth: BirthInput) -> Chart:
             continue
         d = abs((term.utc - solar.moment_utc).total_seconds())
         if d <= astro.BOUNDARY_WARNING_SECONDS:
+            affected = "年柱、月柱" if term.name == "立春" else "月柱"
             warnings.append(BoundaryWarning(
                 term_name=term.name,
                 term_time=term.utc + timedelta(hours=8),
