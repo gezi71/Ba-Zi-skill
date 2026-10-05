@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 排盘引擎回归
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.11', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # ★ 刻意不安装任何包：零依赖是本项目的硬约束，
+      #   这条 CI 就是守着它的 —— 一旦 pyproject 里长出 dependencies，
+      #   这里依然会过，所以还要靠人工 review，但至少保证了标准库能跑通。
+      - name: 单元测试（不装任何依赖）
+        run: python -m unittest discover -s tests -v
+
+      - name: 命令行冒烟测试
+        shell: bash
+        run: |
+          python scripts/bazi.py --date 1990-06-15 --time 12:30 --gender male --city 北京
+          python scripts/bazi.py --date 1990-06-15 --time 12:30 --gender male --city 北京 --format json
+          python scripts/bazi.py --date 2004-02-04 --time 02:00 --gender male --longitude 116.4
+
+      - name: 交叉校验（extern 权威期望值必须一致）
+        shell: bash
+        run: |
+          python -m unittest tests.test_chart.TestFourPillarsCrossValidated -v

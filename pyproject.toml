@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bazi-fortune"
+version = "0.1.0"
+description = "零依赖的八字排盘引擎：精确节气、真太阳时、四柱十神与大运，本身不做吉凶断言"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+keywords = ["八字", "四柱", "命理", "bazi", "chinese-astrology", "fortune-telling"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Other/Nonlisted Topic",
+]
+# ★ 刻意保持 dependencies 为空 —— 这是本项目的核心约束，不是遗漏。
+#   只有 Python 标准库就能跑：装包不会拖来一棵依赖树，也不会有一天因为
+#   某个上游包弃坑而跑不起来。详见 README §3.1。
+dependencies = []
+
+[project.scripts]
+bazi = "bazi.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-name/bazi-fortune"
+Repository = "https://github.com/your-name/bazi-fortune"
+Issues = "https://github.com/your-name/bazi-fortune/issues"
+
+[tool.setuptools]
+packages = ["bazi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
