@@ -486,6 +486,11 @@ def comparison_markdown(data):
 # ─────────────────────────────────────────────────────────────
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Windows 在 CI/管道下可能使用 ANSI 编码，中文与告警符号需按 UTF-8 输出。
+    if sys.platform == "win32":
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")
     args = build_parser().parse_args(argv)
 
     try:
