@@ -107,12 +107,12 @@ class TestTrueSolarTime(unittest.TestCase):
 
 class TestChinaDST(unittest.TestCase):
     def test_夏令时区间包含边界日(self):
-        self.assertIsNotNone(astro.china_dst_range(date(1988, 4, 10)))   # 起始当天
+        self.assertIsNotNone(astro.china_dst_range(date(1988, 4, 17)))   # 起始当天
         self.assertIsNotNone(astro.china_dst_range(date(1988, 9, 11)))   # 结束当天
         self.assertIsNotNone(astro.china_dst_range(date(1988, 7, 1)))
 
     def test_夏令时区间之外返回None(self):
-        self.assertIsNone(astro.china_dst_range(date(1988, 4, 9)))
+        self.assertIsNone(astro.china_dst_range(date(1988, 4, 16)))
         self.assertIsNone(astro.china_dst_range(date(1988, 9, 12)))
         self.assertIsNone(astro.china_dst_range(date(2020, 7, 1)))
 

@@ -1,0 +1,31 @@
+{
+  "sources": [
+    {
+      "file": "24SolarTerms_2024.xml",
+      "year": 2024,
+      "url": "https://www.hko.gov.hk/tc/gts/astronomy/data/files/24SolarTerms_2024.xml",
+      "timezone": "UTC+08:00",
+      "precision": "minute",
+      "retrieved": "2026-10-06",
+      "sha256": "faf1fce249e06a472dc8fb17d42294fc49306f6e5ade4d58379891dad9b2e202"
+    },
+    {
+      "file": "24SolarTerms_2026.xml",
+      "year": 2026,
+      "url": "https://www.hko.gov.hk/tc/gts/astronomy/data/files/24SolarTerms_2026.xml",
+      "timezone": "UTC+08:00",
+      "precision": "minute",
+      "retrieved": "2026-10-06",
+      "sha256": "3af98679f43d4d689941c55ba2a19f146ff111a6dff681235dc2b7110974ac74"
+    },
+    {
+      "file": "iana-2026e-prc.txt",
+      "version": "2026e",
+      "url": "https://data.iana.org/time-zones/releases/tzdata2026e.tar.gz",
+      "archive_sha256": "b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652",
+      "retrieved": "2026-10-06",
+      "sha256": "0540a41f985411973f54e6745ccbc2d9cd839225ccd5367d84d673c033e40891",
+      "scope": "asia 中 PRC 规则及政府通知来源注释摘录；非完整历史时区库"
+    }
+  ]
+}

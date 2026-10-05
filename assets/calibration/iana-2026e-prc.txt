@@ -1,0 +1,28 @@
+# From P Chan (2018-05-07):
+# The start and end time of DST in China [from 1986 on] should be 2:00
+# (i.e. 2:00 to 3:00 at the start and 2:00 to 1:00 at the end)....
+# Government notices about summer time:
+#
+# 1986-04-12 http://www.zj.gov.cn/attach/zfgb/198608.pdf p.21-22
+# (To establish summer time from 1986. On 4 May, set the clocks ahead one hour
+# at 2 am. On 14 September, set the clocks backward one hour at 2 am.)
+#
+# 1987-02-15 http://www.gov.cn/gongbao/shuju/1987/gwyb198703.pdf p.114
+# (Summer time in 1987 to start from 12 April until 13 September)
+#
+# 1987-09-09 http://www.gov.cn/gongbao/shuju/1987/gwyb198721.pdf p.709
+# (From 1988, summer time to start from 2 am of the first Sunday of mid-April
+# until 2 am of the first Sunday of mid-September)
+#
+# 1992-03-03 http://www.gov.cn/gongbao/shuju/1992/gwyb199205.pdf p.152
+# (To suspend summer time from 1992)
+#
+# The first page of People's Daily on 12 April 1988 stating that summer time
+# to begin on 17 April.
+# http://data.people.com.cn/pic/101p/1988/04/1988041201.jpg
+
+# Rule	NAME	FROM	TO	-	IN	ON	AT	SAVE	LETTER/S
+Rule	PRC	1986	only	-	May	 4	 2:00	1:00	D
+Rule	PRC	1986	1991	-	Sep	Sun>=11	 2:00	0	S
+Rule	PRC	1987	1991	-	Apr	Sun>=11	 2:00	1:00	D
+

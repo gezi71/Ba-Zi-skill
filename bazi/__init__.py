@@ -27,7 +27,7 @@ from .constants import (
     nayin_of, hidden_stems_of,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "BirthInput", "Chart", "Pillar", "ShenShaHit", "StrengthBreakdown",
     "BoundaryWarning", "HiddenStemInfo", "build_chart", "compute_dayun", "compute_liunian",

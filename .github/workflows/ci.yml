@@ -40,3 +40,9 @@ jobs:
         shell: bash
         run: |
           python -m unittest tests.test_chart.TestFourPillarsCrossValidated -v
+
+      - name: 离线权威节气校准（含原始文件校验）
+        run: python scripts/calibrate_terms.py
+
+      - name: 典籍检索冒烟
+        run: python scripts/query_classics.py --day-stem 甲 --month-branch 寅

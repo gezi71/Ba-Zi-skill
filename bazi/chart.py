@@ -276,7 +276,7 @@ def evaluate_strength(pillars: Dict[str, Pillar], day_stem: int) -> StrengthBrea
     """日主强弱。
 
     ★ 必须说明白：这是**启发式**，不是任何权威版本的定式。
-    八字的身强弱至少有六七种主流算法（调候扶抑、格局法、五行量化…），彼此结论可以相反。
+    身强弱存在不同判断方法，所用口径可能得到不同结论；本项目权重未独立校准。
     本实现给的是一个 OpenMetrics 风格的加权和，目的不是「取代老师傅」，
     而是让 LLM 有一条能引用、能解释、且明确标注为启发式的线索。
     权重全部常量化，改起来只要动 `_MONTH_POWER_SCORE` 和 `_STEM_SUPPORT`。
@@ -299,6 +299,8 @@ def evaluate_strength(pillars: Dict[str, Pillar], day_stem: int) -> StrengthBrea
                 root_score += got
                 labels.append(f"{p.name}{p.ganzhi} 藏日主{level}：{got:+.1f} 分")
     # 上限保护：通根最多给到 30 分，避免某些盘「根满天下」把分数推到失真
+    if root_score > 30.0:
+        labels.append(f"通根累计 {root_score:.1f} 分，上限截为 30 分（启发式）")
     root_score = min(root_score, 30.0)
 
     # 天干帮扶/损耗：看月干、时干、年干
@@ -380,16 +382,26 @@ def build_chart(birth: BirthInput) -> Chart:
     # 默认不动 —— 理由见 astro.CHINA_DST_RANGES 顶部的注释：
     # 我们无法知道用户报的是夏令时读数还是已经换算过的标准时。
     dst_note = ""
+    dst_hit = astro.china_dst_range(clock_local.date())
+    dst_status = astro.china_dst_clock_status(clock_local)
     if birth.dst_adjust:
-        dst_hit = astro.china_dst_range(clock_local.date())
-        if not dst_hit or birth.tz_offset_hours != 8:
-            raise ValueError("--dst-adjust 仅支持中国大陆表内日期及标准时区 +8；海外请用 --tz 指定出生当时实际 UTC 偏移（含夏令时）")
-        clock_local = clock_local - timedelta(hours=1)
-        dst_note = (f"已按夏令时读数回拨 1 小时（{dst_hit[0]} 至 {dst_hit[1]} 期间）")
+        if birth.tz_offset_hours != 8 or not dst_hit:
+            raise ValueError("--dst-adjust 仅支持表内日期及标准时区 +8；海外请用 --tz 指定出生当时实际 UTC 偏移（含夏令时）")
+        if dst_status == "gap":
+            raise ValueError("夏令时开始日 02:00–02:59 为不存在的夏令时钟表读数；请核对是否已换算标准时")
+        if dst_status == "standard":
+            raise ValueError("该时刻不在夏令时实际区间，不能回拨；请核对读数")
+        clock_local -= timedelta(hours=1)
+        dst_note = f"已按夏令时读数回拨 1 小时（{dst_hit[0]} 至 {dst_hit[1]} 期间）"
     elif birth.tz_offset_hours == 8:
-        dst_hit = astro.china_dst_range(clock_local.date())
-        if dst_hit:
-            dst_note = "日期命中中国大陆夏令时区间；若出生于中国大陆，请确认所报时间是夏令时读数还是已换算的标准时。当前未回拨。"
+        if dst_status in ("daylight", "overlap"):
+            dst_note = "若出生地实行大陆夏令时，请确认读数是否已换算标准时；当前未回拨。"
+        elif dst_status == "gap":
+            dst_note = "该时刻若为拨快后的夏令时钟表读数则不存在；当前按标准时读数计算，请核对。"
+    if birth.tz_offset_hours == 8 and dst_status == "overlap":
+        dst_note += " 转换当天 01:00–01:59 出现两次，应比较回拨与未回拨情景。"
+    if birth.tz_offset_hours == 8 and dst_status == "historical":
+        dst_note += " 早期日期仅为未核查的历史提示，不能推广为全国实行；显式回拨需用户确认当地实际口径。"
 
     solar = astro.to_true_solar_time(clock_local, birth.longitude, birth.tz_offset_hours)
 
@@ -473,7 +485,7 @@ def build_chart(birth: BirthInput) -> Chart:
                 affected=affected,
                 message=(
                     f"出生时刻距「{term.name}」仅 {d/60:.1f} 分钟。"
-                    f"本引擎节气精度约 ±10 分钟（见 astro.py 文件头实测），"
+                    f"现有校准样本最大差约 13.8 分钟；±15 分钟仅为敏感性窗口，"
                     f"{affected}可能排错，请核对出生时间后再用。"
                 ),
             ))

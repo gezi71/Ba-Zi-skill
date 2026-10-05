@@ -202,6 +202,7 @@ def to_json(chart, dayun_info, dayun_list, liunian, place_label: str) -> str:
         ],
         "告警": [w.message for w in chart.warnings],
         "传统结构": analyze_patterns(chart),
+        "校准来源": astro.CALIBRATION_INFO,
         "免责声明": DISCLAIMER.lstrip("> "),
     }
 
@@ -332,7 +333,7 @@ def to_markdown(chart, dayun_info, dayun_list, liunian, place_label: str) -> str
     for lb in chart.strength.labels:
         lines.append(f"- {lb}")
     lines.append("")
-    lines.append("> 这是加权启发式，不是任何权威定式。命理界对身强弱至少有六七套互不支持的算法，"
+    lines.append("> 这是加权启发式，不是任何权威定式。不同身强弱方法有各自口径，本项目权重未独立校准，"
                  "此分数的作用是给出一条可解释、可复核的线索。")
     lines.append("")
 
@@ -379,6 +380,21 @@ def to_markdown(chart, dayun_info, dayun_list, liunian, place_label: str) -> str
         lines.append("")
     for combo in structure["十神组合线索"]:
         lines.append(f"- {combo['名称']}：{'；'.join(combo['依据'])}；{combo['状态']}。")
+    for item in structure["结构条件检查"]:
+        lines.append(f"### {item['名称']}条件检查（{item['规则编号']}）")
+        for condition in item["条件检查"]:
+            lines.append(f"- {condition['条件']}：{condition['状态']}")
+        lines.append("- 原文来源：" + item["条件检查"][0]["来源"]["链接"])
+        lines.append("")
+    roots = structure["结构事实"]["日主根"]
+    describe = lambda items: "、".join(f"{r['位置']}{r['地支']}藏{r['藏干']}（{r['层级']}）" for r in items) or "未见"
+    lines.extend(["### 结构事实", "", "- 日主同干根：" + describe(roots["同干根"]),
+                  "- 日主同五行根（含同干根）：" + describe(roots["同五行根"])])
+    for fact in structure["结构事实"]["透干及作用"]:
+        lines.append(f"- {fact['位置']}{fact['干支']}：{fact['十神']}，相对日主为{fact['相对日主作用']}；同干根 {describe(fact['同干根'])}；同五行根 {describe(fact['同五行根'])}")
+    climate = structure["调候参考"]
+    lines.extend(["", "- 调候查阅：" + climate["检索章节"] + "；" + climate["状态"],
+                  "- 调候来源：" + climate["链接"], "- 校准依据：" + astro.CALIBRATION_INFO["来源"] + "（2024、2026，非全年份精度保证）"])
     lines.append("- 未评估：" + "；".join(structure["未评估"]))
     lines.extend(["", "### 原局、大运与流年冲合", "", "仅记录支组，不判合化、解冲或事件；流年按整年展示，大运起止日期为近似值。", ""])
     data = json.loads(to_json(chart, dayun_info, dayun_list, liunian, place_label))
@@ -411,15 +427,20 @@ def compare_output(birth, time_range, sensitivity, dayun_count, liunian_years, p
             end += timedelta(days=1)
     groups = {}
     sample_count = 0
+    excluded = []
     moment = start
     while moment <= end:
         base = replace(birth, year=moment.year, month=moment.month, day=moment.day,
                        hour=moment.hour, minute=moment.minute)
         dst_options = [birth.dst_adjust]
-        if sensitivity and not birth.dst_adjust and birth.tz_offset_hours == 8 and astro.china_dst_range(moment.date()):
+        if sensitivity and not birth.dst_adjust and birth.tz_offset_hours == 8 and astro.china_dst_clock_status(moment) in ("daylight", "overlap", "historical", "gap"):
             dst_options.append(True)
         for dst in dst_options:
             current = replace(base, dst_adjust=dst)
+            if dst and current.tz_offset_hours == 8 and astro.china_dst_clock_status(moment) in ("gap", "standard"):
+                excluded.append({"时间": moment.strftime("%Y-%m-%d %H:%M"), "夏令时回拨": True,
+                                 "原因": "不存在的夏令时钟表读数" if astro.china_dst_clock_status(moment) == "gap" else "实际区间外不可回拨"})
+                continue
             normal = build_chart(current)
             offsets = [0]
             if sensitivity and any(w.term_name != "夏令时" for w in normal.warnings):
@@ -453,10 +474,12 @@ def compare_output(birth, time_range, sensitivity, dayun_count, liunian_years, p
                 sample_count += 1
         moment += timedelta(minutes=1)
     candidates = list(groups.values())
+    if not candidates:
+        raise ValueError("范围中没有有效夏令时情景；请核对输入读数")
     shared = {pos: candidates[0]["四柱"][pos] for pos in ("年柱", "月柱", "日柱", "时柱")
               if all(c["四柱"][pos] == candidates[0]["四柱"][pos] for c in candidates)}
     return {"输出版本": __version__, "模式": "候选盘比较", "范围": [str(start), str(end)],
-            "情景采样数": sample_count, "共同四柱": shared,
+            "情景采样数": sample_count, "共同四柱": shared, "排除情景": excluded,
             "变化四柱": [p for p in ("年柱", "月柱", "日柱", "时柱") if p not in shared],
             "候选": candidates,
             "说明": "时间范围含端点，按分钟穷举；情景数量不是概率。节气±15分钟是敏感性测试，不是新天文精度或修改出生时间。代表排盘只代表该组一个输入；起运日期按范围比较。共同四柱不代表所有性格或事件结论成立。未比较晚子时流派。"}
@@ -478,6 +501,10 @@ def comparison_markdown(data):
         lines.append("- 月令候选：" + ("、".join(c["名称"] for c in structure["格局候选"]) or "无普通八格候选"))
         lines.extend(["", "<details><summary>代表排盘与规则依据（JSON）</summary>", "", "```json",
                       json.dumps(candidate["代表排盘"], ensure_ascii=False, indent=2), "```", "", "</details>", ""])
+    if data.get("排除情景"):
+        lines.extend(["", "### 排除的夏令时情景", ""])
+        for item in data["排除情景"]:
+            lines.append(f"- {item['时间']}：{item['原因']}；请核对读数。")
     return "\n".join(lines)
 
 

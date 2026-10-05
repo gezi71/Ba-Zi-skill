@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bazi-fortune"
-version = "0.2.0"
-description = "零依赖的八字排盘引擎：精确节气、真太阳时、四柱十神与大运，本身不做吉凶断言"
+version = "0.3.0"
+description = "零依赖的八字排盘引擎：近似节气、真太阳时、四柱十神与大运，本身不做吉凶断言"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -36,3 +36,6 @@ packages = ["bazi"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+
+[tool.setuptools.package-data]
+bazi = ["data/*.json"]
