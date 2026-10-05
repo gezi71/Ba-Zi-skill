@@ -1,0 +1,3 @@
+# Calibration source hashes cover original bytes; prevent checkout newline conversion.
+/assets/calibration/*.xml -text
+/assets/calibration/iana-2026e-prc.txt -text
