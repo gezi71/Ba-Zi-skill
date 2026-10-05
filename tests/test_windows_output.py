@@ -1,14 +1,38 @@
 """模拟 Windows 管道的非 UTF-8 编码，验证实际 CLI 输出没有损坏或异常。"""
 
 import json
+import contextlib
+from datetime import date
+import io
 import os
 from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
+
+from bazi.cli import main
+
+
+class AsciiFormatDate(date):
+    """旧版 Windows strftime 在非中文区域设置下的格式串限制。"""
+    def strftime(self, format):
+        format.encode("ascii")
+        return super().strftime(format)
 
 
 class TestWindowsOutput(unittest.TestCase):
+    def test_夏令时提示不依赖日期格式化支持中文(self):
+        output, error = io.StringIO(), io.StringIO()
+        dates = (AsciiFormatDate(1990, 4, 15), AsciiFormatDate(1990, 9, 16))
+        with patch("bazi.cli.astro.china_dst_range", return_value=dates), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            status = main(["--date", "1990-06-15", "--time", "12:30", "--format", "json"])
+        self.assertEqual(status, 0)
+        self.assertIn("04月15日", error.getvalue())
+        self.assertIn("09月16日", error.getvalue())
+        self.assertEqual(json.loads(output.getvalue())["四柱"]["day"]["干支"], "辛亥")
+
     def run_windows_cli(self, output_format):
         code = """
 import sys

@@ -536,7 +536,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     dst_hit = astro.china_dst_range(date(y, m, d)) if birth.tz_offset_hours == 8 else None
     if dst_hit and not birth.dst_adjust:
         print(
-            f"提示：{y} 年 {dst_hit[0].strftime('%m月%d日')} 至 {dst_hit[1].strftime('%m月%d日')} 中国大陆实行夏令时。"
+            f"提示：{y} 年 {dst_hit[0].month:02d}月{dst_hit[0].day:02d}日 至 "
+            f"{dst_hit[1].month:02d}月{dst_hit[1].day:02d}日 中国大陆实行夏令时。"
             f"若您报的是夏令时读数，请加 --dst-adjust 由脚本回拨 1 小时；"
             f"若已是标准时则无需处理。（默认不自动回拨，理由见 README §5.3）",
             file=sys.stderr,
